@@ -20,25 +20,25 @@ Find examples in [*capire/samples*](https://github.com/capire/bookstore/tree/mai
 
 ## Why
 
-As applications are being used they will accumulate data. Which will cause applications to eventually hit their limits. To prevent an application from becoming unusable it is required to remove these limits. The primary solution to removing the limitations on how much data an application can process is streaming. By loading in controlled subsets of the whole dataset it is possible to process an unending amount of data. Additionally streaming will have the effect that the peak memory usage of the application is greatly reduced. Allowing application orgestrators to run multiple instances with the same memory quota.
+As applications are being used they will accumulate data. This will cause applications to eventually hit their limits. To prevent an application from becoming unusable it is required to remove these limits. The primary solution to removing the limitations on how much data an application can process is streaming. By loading in controlled subsets of the whole dataset it is possible to process an unending amount of data. Additionally streaming will have the effect that the peak memory usage of the application is greatly reduced, allowing application orchestrators to run multiple instances with the same memory quota.
 
 ## How
 
 ### Object Mode
 
-First thing to decide when streaming is `objectMode` this determines whether a stream is providing `binary` data or `objects`. For the best performance `binary` streams are required. If you just require the capability to process **all** your data your go to will be `object` streams. While using `object` streams it is possible to transform the data using basic javascript operations.
+The first thing to decide when streaming is the format, or `objectMode`, which signifies whether a stream is providing `binary` data or `objects`. For the best performance, `binary` streams are required. If you just require the capability to process **all** your data then an `object` stream is appropriate. While using `object` streams it is possible to transform the data using basic JavaScript operations.
 
 ### Pipeline
 
-Once you know the format you are going to stream your data it is required to identify the flow of the data. The flow of data through the application will be defined by creating a `pipeline`.
+Having determined the format, the flow of the data must then be defined. This is done by creating a `pipeline`.
 
 ```js
 return pipeline(req, parse, transform, stringify, res)
 ```
 
-The creation of a `pipeline` can be as simple as the provided example, but usually it will require some effort to workout the individual pieces.
+The creation of a `pipeline` can be as simple as the provided example, but usually it will require some effort to work out the individual pieces.
 
-An important concept will be `async generators` that are functions that can `return` multiple times by using the keyword `yield`. It is possible to loop over `async generators` using the `for await` syntax. The `generator` and the `for` loop are bound to each other if the `for` loop uses `break` the `generator` will be stopped as well. If the `generator` throws an `Error` the `for` loop will throw that `Error`. As example the `generator` doesn't end instead the `for` loop uses `break` to stop the generator.
+In JavaScript, an `AsyncGenerator` is an object that can `return` multiple times using the keyword `yield`. It is possible to loop over async generators using the `for await` syntax. The generator and the `for` loop are bound to each other, in that if the `for` loop uses `break` the generator will be stopped as well. If the generator throws an `Error` the `for` loop will throw that `Error`. In this example the `for` loop uses `break` to stop the generator:
 
 ```js
 async function* generator () {
@@ -53,7 +53,7 @@ for await(const row of generator()) {
 } 
 ```
 
-This principle applies at every step of the `pipeline`. For example you can limit how much data is allowed to be uploaded to your application.
+This principle applies at every step of the `pipeline`. For example you can limit how much data can be uploaded to your application:
 
 ```js
 return pipeline(req, async function* (stream) {
@@ -66,7 +66,7 @@ return pipeline(req, async function* (stream) {
 }, res)
 ```
 
-It is often required as part of a `pipeline` to switch data structures. As all external streams will be using `binary` format it will be required to convert it into `objects` for transformating with `javascript` and then convert it back to a `binary` format to send it to an external target.
+It is often required as part of a `pipeline` to switch data structures. As all external streams will be using `binary` format, a conversion to `objects` will be needed for transforming with JavaScript, and then back to `binary` for onward transmission to an external target.
 
 ```js
 return pipeline(req, parse, transform, stringify, res)
@@ -98,9 +98,9 @@ await SELECT.pipeline(async function* (stream) {
 
 ### Performance
 
-While the `pipeline` APIs are easy to use when using `object` streams. It comes with the cost of running `javascript` code. If you want to use streaming to make your application faster. It is important to leverage the CAP features you already know.
+While the `pipeline` APIs are easy to use when using `object` streams, there is a performance cost involved with running JavaScript. If you want to use streaming to make your application faster, it is important to make use of the CAP features you already know.
 
-A common issue that applications will run into is that their public APIs and internal data structures slightly differ. One could go an make a `pipeline` that transforms the incoming data structure to fit that of their model.
+For example, it is often the case that an application's public API differs from its internal data structures. One way to address this would be with a `pipeline` that uses JavaScript to transform the incoming data structure to fit the model:
 
 ```js
 await pipeline(req, parse, async function* (stream) {
@@ -111,7 +111,7 @@ await pipeline(req, parse, async function* (stream) {
 }, INSERT.into(table))
 ```
 
-Or you could simply define the transformation in your `cds` model. As the `INSERT` and `UPSERT` queries are capable of doing the transformation in the database.
+As an alternative to this, you could simply define the transformation in your CDS model, as the `INSERT` and `UPSERT` queries are capable of doing the transformation directly in the database:
 
 ```cds
 entity BooksRenamed projection on Books {
@@ -121,13 +121,13 @@ entity BooksRenamed projection on Books {
 }
 ```
 
-Which will allow the application layer to use `binary` streams and have the database do the renaming.
+This will allow the application layer to use `binary` streams for better performance, and have the transformation taken care of at the database level:
 
 ```js
 await INSERT(req).into(BooksRenamed)
 ```
 
-It is not really true that the databse is "renaming" the property it actually just putting it into the correct table column.
+Note that there is not really any "renaming" going on here, the data is just being put into the correct table columns:
 
 ```sql
 INSERT INTO Books (descr, ...) SELECT value.description, ... FROM json(?)
@@ -135,4 +135,4 @@ INSERT INTO Books (descr, ...) SELECT value.description, ... FROM json(?)
 
 ### Errors
 
-A lot of questions arise around how to do error handling with streaming. If you send your client a `200` message and something goes wrong while transporting the `body` to the client. It might not create very clear error messages, but it is allowed to close the connection to the client. All clients are able to handle connections being terminated. Depending on the client it might automatically recover or it might show an error message. Just make sure that any errors that occur while setting up the `pipeline` are clearly communicated to the client. While the errors that occur during the streaming process are logged by your application for future analysis. All network based solutions have the possibility that the connection is terminated un expectedly.
+Errors can occur at all stages of streaming, as anywhere else. Distinguish between setup errors and streaming errors. If an error occurs while setting up the `pipeline`, this can be communicated clearly to the client with an appropriate status code. If an error occurs subsequently, while the data is being streamed, then while there is no formal facility for signaling an error, the connection can be closed, and the client must use normal termination handling techniques to recover.
